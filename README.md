@@ -400,6 +400,12 @@ to `getStorage()`. Nothing else in the app knows which backend is in use.
    ```
 4. Deploy. `npm run build` runs `prisma generate` first, so the client is always in sync.
 
+> **The build does not need a reachable database.** Every page that reads Postgres is
+> rendered per request, and `/sitemap.xml` is explicitly `force-dynamic` for the same
+> reason — prerendering it would both freeze the listing set at build time and make a
+> first deploy fail if its build ran before migrations. You can therefore deploy and
+> migrate in either order.
+
 **Cost at MVP scale:** Vercel Hobby, Supabase free tier and Cloudinary free tier are all
 ₹0/month. The first real bill is your domain.
 
