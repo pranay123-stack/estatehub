@@ -388,7 +388,8 @@ to `getStorage()`. Nothing else in the app knows which backend is in use.
    DATABASE_URL="<direct-connection-uri>" npm run db:seed   # optional
    ```
 2. **Images** — create a free Cloudinary account and note the cloud name, API key and secret.
-3. **Vercel** — import the repository and set these environment variables:
+3. **Vercel** — import the repository and set these environment variables. The build
+   will succeed without them, so set them *before* your first real visit:
    ```
    DATABASE_URL           = <pooler URI>?pgbouncer=true&connection_limit=1
    AUTH_SECRET            = <openssl rand -base64 32>
@@ -400,11 +401,14 @@ to `getStorage()`. Nothing else in the app knows which backend is in use.
    ```
 4. Deploy. `npm run build` runs `prisma generate` first, so the client is always in sync.
 
-> **The build does not need a reachable database.** Every page that reads Postgres is
-> rendered per request, and `/sitemap.xml` is explicitly `force-dynamic` for the same
-> reason — prerendering it would both freeze the listing set at build time and make a
-> first deploy fail if its build ran before migrations. You can therefore deploy and
-> migrate in either order.
+> **The build needs neither a database nor `DATABASE_URL`.** Every page that reads
+> Postgres renders per request, `/sitemap.xml` is explicitly `force-dynamic` (prerendering
+> it would freeze the listing set at build time), and the Prisma client is constructed on
+> first use rather than on import — `next build` imports every route module to collect its
+> configuration, so an eagerly-built client would fail the build before the environment is
+> even wired up. You can therefore deploy and migrate in either order, and a missing
+> `DATABASE_URL` surfaces at request time with an actionable message instead of a build
+> stack trace.
 
 **Cost at MVP scale:** Vercel Hobby, Supabase free tier and Cloudinary free tier are all
 ₹0/month. The first real bill is your domain.
