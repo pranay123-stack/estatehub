@@ -30,13 +30,20 @@ test.describe("buyer dashboard", () => {
     const href = await card.locator("h3 a").getAttribute("href");
     const heart = card.getByRole("button", { name: /Save property|Remove from saved/ });
 
-    // Other tests share this buyer account, so normalise to "not saved" first.
-    if ((await heart.getAttribute("aria-pressed")) === "true") {
+    // The heart flips optimistically, so aria-pressed says nothing about
+    // whether the write has landed. Wait for the request itself before
+    // navigating, or the saved page can be read before the row exists.
+    const toggle = async () => {
+      const done = page.waitForResponse(
+        (r) => r.url().includes("/api/favorites") && r.request().method() === "POST",
+      );
       await heart.click();
-      await expect(heart).toHaveAttribute("aria-pressed", "false");
-    }
+      await done;
+    };
 
-    await heart.click();
+    // Other tests share this buyer account, so normalise to "not saved" first.
+    if ((await heart.getAttribute("aria-pressed")) === "true") await toggle();
+    await toggle();
     await expect(heart).toHaveAttribute("aria-pressed", "true");
 
     await page.goto("/dashboard/saved");
@@ -49,8 +56,15 @@ test.describe("buyer dashboard", () => {
     await page.locator("article h3 a").first().click();
     await page.waitForURL(/\/properties\/[a-z0-9-]+$/);
 
-    await page.goto("/dashboard/recent");
-    await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
+    // The view is recorded fire-and-forget on the server so it never delays the
+    // listing render, which means it can land just after the page responds.
+    // Re-navigate until it shows up rather than reading once.
+    await expect
+      .poll(async () => {
+        await page.goto("/dashboard/recent");
+        return page.locator(`a[href="${href}"]`).count();
+      })
+      .toBeGreaterThan(0);
   });
 });
 
