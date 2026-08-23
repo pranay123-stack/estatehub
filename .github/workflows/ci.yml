@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: realestate
+          POSTGRES_PASSWORD: realestate
+          POSTGRES_DB: realestate_test
+        ports: ["5432:5432"]
+        # Without this, the first migration can race the container's startup.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://realestate:realestate@localhost:5432/realestate_test?schema=public
+      AUTH_SECRET: ci-only-secret-uJ8kQ2mNvR7xT4pL9wZ3cB6yF1hG5sA0
+      STORAGE_DRIVER: local
+      LOCAL_UPLOAD_DIR: ./storage/test-uploads
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts builds and starts the app itself, and
+      # tests/global-setup.ts migrates and seeds the database.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

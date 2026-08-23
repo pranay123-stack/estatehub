@@ -1,0 +1,197 @@
+// EstateHub — property marketplace schema.
+// Generated client lands in src/generated/prisma (Prisma 7 `prisma-client` generator).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// BUYER  – browses, saves, enquires.
+/// OWNER  – individual listing their own property.
+/// AGENT  – broker listing on behalf of others (same powers as OWNER today,
+///          split out now so agent-only features can attach later).
+/// ADMIN  – moderates listings and users.
+enum Role {
+  BUYER
+  OWNER
+  AGENT
+  ADMIN
+}
+
+enum PropertyType {
+  APARTMENT
+  VILLA
+  PLOT
+  COMMERCIAL
+}
+
+enum ListingType {
+  RENT
+  SALE
+}
+
+/// Every new listing starts PENDING and is invisible to the public until an
+/// admin approves it. This single field powers the whole moderation queue.
+enum ListingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SOLD
+  INACTIVE
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  phone        String?
+  role         Role     @default(BUYER)
+  /// Soft-ban: blocked users keep their data but cannot authenticate.
+  blocked      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  properties  Property[]
+  favorites   Favorite[]
+  recentViews RecentView[]
+  enquiries   Enquiry[]
+
+  @@index([role])
+}
+
+model Property {
+  id          String @id @default(cuid())
+  /// SEO-friendly URL segment, e.g. "3-bhk-apartment-in-powai-mumbai-abc123".
+  slug        String @unique
+  ownerId     String
+  title       String
+  description String @db.Text
+
+  type        PropertyType
+  listingType ListingType
+
+  /// Stored in whole rupees. Integer avoids float rounding on money;
+  /// BigInt is unnecessary — Int caps at ~214 crore which exceeds any listing.
+  price   Int
+  /// RENT listings carry a refundable deposit; null for SALE.
+  deposit Int?
+
+  city     String
+  locality String
+  address  String?
+  pincode  String?
+
+  bedrooms   Int     @default(0)
+  bathrooms  Int     @default(0)
+  areaSqft   Int
+  furnishing String?
+  floor      String?
+  ageYears   Int?
+
+  /// Free-form tags ("Lift", "Power Backup"). A Postgres text[] keeps the MVP
+  /// simple; promote to an Amenity table only if filtering on them is needed.
+  amenities String[] @default([])
+
+  contactName  String
+  contactPhone String
+  contactEmail String?
+
+  status          ListingStatus @default(PENDING)
+  /// Hand-picked by an admin for the landing page carousel.
+  featured        Boolean       @default(false)
+  /// Denormalised counter — cheaper than counting RecentView rows on every read.
+  views           Int           @default(0)
+  /// Populated when an admin rejects, so the owner sees why.
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  images      PropertyImage[]
+  favorites   Favorite[]
+  recentViews RecentView[]
+  enquiries   Enquiry[]
+
+  // Composite indexes matching the real query shapes on /properties:
+  // "approved listings in a city, for sale/rent, newest first".
+  @@index([status, city])
+  @@index([status, listingType, type])
+  @@index([status, price])
+  @@index([status, createdAt])
+  @@index([ownerId])
+}
+
+model PropertyImage {
+  id         String  @id @default(cuid())
+  propertyId String
+  /// Public URL produced by the active storage driver (local path or CDN URL).
+  url        String
+  /// Driver-specific handle used to delete the blob (e.g. Cloudinary public_id).
+  storageKey String?
+  alt        String?
+  /// Position in the gallery; 0 is the cover image.
+  sortOrder  Int     @default(0)
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, sortOrder])
+}
+
+model Favorite {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // Makes "save" idempotent — an upsert can never create a duplicate.
+  @@unique([userId, propertyId])
+  @@index([userId, createdAt])
+}
+
+model RecentView {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  viewedAt   DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // One row per user+property; re-viewing bumps viewedAt instead of inserting.
+  @@unique([userId, propertyId])
+  @@index([userId, viewedAt])
+}
+
+model Enquiry {
+  id         String   @id @default(cuid())
+  propertyId String
+  /// Null when an anonymous visitor submits the contact form.
+  userId     String?
+  name       String
+  email      String
+  phone      String
+  message    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, createdAt])
+}
