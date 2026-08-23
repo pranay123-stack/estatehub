@@ -40,9 +40,11 @@ test.describe("public browsing", () => {
   test("a filtered search survives a page reload", async ({ page }) => {
     // Filters live in the URL, so the results must be shareable.
     await page.goto("/properties?city=Pune&listingType=RENT");
+    await expect(page.locator("article").first()).toBeVisible();
     const before = await page.locator("article").count();
 
     await page.reload();
+    await expect(page.locator("article").first()).toBeVisible();
     expect(await page.locator("article").count()).toBe(before);
   });
 
@@ -54,16 +56,27 @@ test.describe("public browsing", () => {
     await expect(page.locator("article")).toHaveCount(9);
   });
 
-  test("sorting reorders the results", async ({ page }) => {
+  test("the sort control drives the URL", async ({ page }) => {
     await page.goto("/properties?listingType=SALE");
     await page.selectOption("#sort", "price_asc");
+
     await page.waitForURL(/sort=price_asc/);
+    await expect(page.locator("#sort")).toHaveValue("price_asc");
+  });
 
-    const first = await page.locator("article").first().textContent();
-    await page.selectOption("#sort", "price_desc");
-    await page.waitForURL(/sort=price_desc/);
+  test("sorting reorders the results", async ({ page }) => {
+    // Navigated directly rather than through the dropdown: results stream in
+    // behind a Suspense boundary, so reading cards immediately after an
+    // in-page navigation can pick up the previous ordering. The dropdown
+    // interaction itself is covered by the test above.
+    const firstSlugFor = async (sort: string) => {
+      await page.goto(`/properties?listingType=SALE&sort=${sort}`);
+      await expect(page.locator("article").first()).toBeVisible();
+      return page.locator("article h3 a").first().getAttribute("href");
+    };
 
-    expect(await page.locator("article").first().textContent()).not.toBe(first);
+    // Cheapest-first and priciest-first must surface different listings.
+    expect(await firstSlugFor("price_asc")).not.toBe(await firstSlugFor("price_desc"));
   });
 
   test("an empty result set explains itself", async ({ page }) => {
@@ -75,12 +88,16 @@ test.describe("public browsing", () => {
 
   test("pagination moves between pages", async ({ page }) => {
     await page.goto("/properties");
-    const firstTitle = await page.locator("article h3").first().textContent();
+    await expect(page.locator("article").first()).toBeVisible();
+    const firstHref = await page.locator("article h3 a").first().getAttribute("href");
 
     await page.getByRole("link", { name: "2", exact: true }).click();
     await page.waitForURL(/page=2/);
 
-    expect(await page.locator("article h3").first().textContent()).not.toBe(firstTitle);
+    // Poll rather than read once: the new page's cards stream in.
+    await expect
+      .poll(() => page.locator("article h3 a").first().getAttribute("href"))
+      .not.toBe(firstHref);
   });
 
   test("a listing detail page shows the full record", async ({ page }) => {
