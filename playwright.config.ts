@@ -34,8 +34,13 @@ export default defineConfig({
     // `next build` then `next start`: exercises the production output, which is
     // where the public/-snapshot class of bug only ever shows up.
     command: `npm run build && npx next start --port ${PORT}`,
-    url: `http://localhost:${PORT}/api/properties`,
-    timeout: 180_000,
+    // Health-check a route with no database dependency. Playwright starts the
+    // web server BEFORE globalSetup, so /api/properties would still be 500ing
+    // (no tables yet) and the poll would time out. This only needs to prove the
+    // server is listening.
+    url: `http://localhost:${PORT}/robots.txt`,
+    // A cold CI runner builds from scratch with no Turbopack cache.
+    timeout: 300_000,
     reuseExistingServer: !process.env.CI,
     env: {
       DATABASE_URL: process.env.DATABASE_URL!,

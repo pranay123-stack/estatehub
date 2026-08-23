@@ -12,14 +12,17 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { localUploadDir } from "../src/lib/storage/local";
 import { SEED_PROPERTIES, type SeedProperty } from "./seed-data";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 
-// Same directory the `local` storage driver writes to (see src/lib/storage/local.ts).
-const UPLOAD_DIR = path.join(process.cwd(), "storage", "uploads");
+// Resolved by the storage driver itself rather than hardcoded, so seeding
+// honours LOCAL_UPLOAD_DIR. Hardcoding it meant the E2E environment (which
+// points that variable elsewhere) served 404s for every seeded photo.
+const UPLOAD_DIR = localUploadDir();
 const DEMO_PASSWORD = "Password123";
 
 /**

@@ -52,8 +52,13 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      # playwright.config.ts builds and starts the app itself, and
-      # tests/global-setup.ts migrates and seeds the database.
+      # tests/global-setup.ts does this too, but doing it explicitly here means a
+      # database problem fails on its own step with a clear message, rather than
+      # surfacing as a web-server timeout.
+      - name: Prepare test database
+        run: npx prisma migrate deploy
+
+      # playwright.config.ts builds and starts the app itself.
       - name: End-to-end tests
         run: npm run test:e2e
 

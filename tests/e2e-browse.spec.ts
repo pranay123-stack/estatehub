@@ -109,12 +109,31 @@ test.describe("public browsing", () => {
     await expect(seller).toContainText(/\+91/);
   });
 
+  test("seeded listing photos actually load", async ({ page }) => {
+    await page.goto("/properties");
+    await expect(page.locator("article img").first()).toBeVisible();
+
+    // Asserting the bytes arrive, not just that an <img> is in the DOM. The
+    // seed once wrote photos to a directory the server did not serve from, so
+    // every card rendered a broken image and nothing caught it.
+    const broken = await page.locator("article img").evaluateAll((images) =>
+      images.filter((img) => !((img as HTMLImageElement).naturalWidth > 0)).length,
+    );
+    expect(broken, "some listing images failed to load").toBe(0);
+  });
+
   test("the gallery lightbox opens and closes", async ({ page }) => {
     await page.goto("/properties");
     await page.locator("article h3 a").first().click();
 
     await page.getByRole("button", { name: "Open image gallery" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    // The full-size image in the lightbox must load too.
+    await expect
+      .poll(() => dialog.locator("img").first().evaluate((i: HTMLImageElement) => i.naturalWidth > 0))
+      .toBe(true);
 
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
