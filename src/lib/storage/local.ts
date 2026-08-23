@@ -38,7 +38,21 @@ export const localStorage: StorageAdapter = {
 
   async upload(file: File): Promise<StoredFile> {
     const dir = localUploadDir();
-    await mkdir(dir, { recursive: true });
+
+    try {
+      await mkdir(dir, { recursive: true });
+    } catch (error) {
+      // Serverless filesystems are read-only outside /tmp, so this driver
+      // cannot work there. Say so plainly instead of surfacing a bare EROFS.
+      if ((error as NodeJS.ErrnoException).code === "EROFS") {
+        throw new Error(
+          "STORAGE_DRIVER=local cannot write on a read-only filesystem (Vercel and " +
+            "most serverless hosts). Configure an object store and set STORAGE_DRIVER " +
+            "accordingly — see the README's \"Image storage\" section.",
+        );
+      }
+      throw error;
+    }
 
     const ext = EXTENSIONS[file.type] ?? "bin";
     // Random name, never the client-supplied one — blocks path traversal and

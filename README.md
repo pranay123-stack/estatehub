@@ -193,9 +193,8 @@ npm run dev
 
 Open <http://localhost:3000>.
 
-> The seeder downloads ~15 sample photos from Unsplash into `storage/uploads/` so the demo is
-> self-contained. Without a network connection it still succeeds — listings just render with
-> a placeholder graphic.
+> The 15 sample photos are committed under `public/seed/`, so seeding works offline and the
+> demo renders identically on any host without an object store.
 
 ---
 
@@ -373,8 +372,20 @@ implementation from `STORAGE_DRIVER`.
 - **`cloudinary`** — signed uploads through the REST API (no SDK dependency). The API secret
   stays server-side, so nobody can upload to your account by reading the client bundle.
 
-To add S3: create `src/lib/storage/s3.ts` implementing the same interface, and add one case
-to `getStorage()`. Nothing else in the app knows which backend is in use.
+To add S3, Supabase Storage or anything else: create `src/lib/storage/<name>.ts` implementing
+the same interface and add one case to `getStorage()`. Nothing else in the app knows which
+backend is in use.
+
+**Demo photos are not uploads.** The seeded listings reference committed files in
+`public/seed/`, served as ordinary static assets, and never touch a storage driver. That is
+deliberate: build-time assets and runtime user uploads have different lifecycles, and routing
+the former through the latter is why seeded listings once rendered broken images everywhere
+`LOCAL_UPLOAD_DIR` differed.
+
+**Deploying without an object store.** The seeded catalogue works anywhere with no storage
+configuration at all. What will not work is a user uploading photos: `STORAGE_DRIVER=local`
+needs a writable filesystem, which serverless hosts do not provide, and the driver now says
+so explicitly rather than failing with a bare `EROFS`.
 
 ---
 

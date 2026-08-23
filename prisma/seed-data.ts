@@ -1,9 +1,8 @@
 /**
  * Sample listings used by prisma/seed.ts.
  *
- * `photos` are Unsplash photo IDs; the seed script downloads each one into
- * storage/uploads so the demo runs without depending on an external CDN at
- * request time.
+ * `photos` name files committed under public/seed (minus the .jpg), so the
+ * demo needs no image host and seeds offline.
  */
 export type SeedProperty = {
   title: string;

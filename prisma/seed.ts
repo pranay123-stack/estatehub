@@ -1,58 +1,49 @@
 /**
  * Seeds demo users and 20 property listings.
  *
+ * Photos come from public/seed, which is committed, so this runs offline and
+ * needs no image host — the listings render the same locally and on Vercel.
+ *
  * Run with: npm run db:seed
  *
  * Idempotent — users are upserted and properties are matched on their
  * deterministic slug, so running it twice will not create duplicates.
  */
 import "dotenv/config";
-import { mkdir, writeFile, access } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import { localUploadDir } from "../src/lib/storage/local";
 import { SEED_PROPERTIES, type SeedProperty } from "./seed-data";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 
-// Resolved by the storage driver itself rather than hardcoded, so seeding
-// honours LOCAL_UPLOAD_DIR. Hardcoding it meant the E2E environment (which
-// points that variable elsewhere) served 404s for every seeded photo.
-const UPLOAD_DIR = localUploadDir();
 const DEMO_PASSWORD = "Password123";
 
 /**
- * Downloads a demo photo into storage/uploads once, and returns the URL that
- * /api/files serves it from.
- * If the network is unavailable the seed still succeeds — the listing simply
- * renders with the card's placeholder graphic.
+ * Demo photos live in public/seed and are committed to the repository, so they
+ * are served as ordinary static assets everywhere the app runs — including
+ * Vercel, which needs no object store for them.
+ *
+ * They deliberately do NOT go through the storage driver. That path is for
+ * runtime user uploads, which have a different lifecycle: they are written
+ * after the build, so they cannot live in public/ and need real object storage
+ * in production. Conflating the two is what previously left every seeded
+ * listing with a broken image.
  */
-async function fetchPhoto(photoId: string): Promise<string | null> {
-  const filename = `seed-${photoId}.jpg`;
-  const target = path.join(UPLOAD_DIR, filename);
+const SEED_PHOTO_DIR = path.join(process.cwd(), "public", "seed");
 
-  // Already downloaded on a previous run.
+async function seedPhotoUrl(photoId: string): Promise<string | null> {
+  const filename = `${photoId}.jpg`;
   try {
-    await access(target);
-    return `/api/files/${filename}`;
+    await access(path.join(SEED_PHOTO_DIR, filename));
+    return `/seed/${filename}`;
   } catch {
-    // not cached yet — fall through and download
-  }
-
-  try {
-    const response = await fetch(
-      `https://images.unsplash.com/photo-${photoId}?auto=format&fit=crop&w=1200&q=70`,
-      { signal: AbortSignal.timeout(20_000) },
-    );
-    if (!response.ok) return null;
-
-    await writeFile(target, Buffer.from(await response.arrayBuffer()));
-    return `/api/files/${filename}`;
-  } catch {
+    // Missing asset: the card falls back to its placeholder graphic rather
+    // than the seed failing outright.
     return null;
   }
 }
@@ -69,7 +60,6 @@ function seedSlug(property: SeedProperty, index: number): string {
 
 async function main() {
   console.log("Seeding EstateHub…");
-  await mkdir(UPLOAD_DIR, { recursive: true });
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
@@ -129,12 +119,9 @@ async function main() {
   for (const [index, item] of SEED_PROPERTIES.entries()) {
     const slug = seedSlug(item, index);
 
-    // Photos are fetched sequentially per listing to stay polite to the CDN.
-    const urls: string[] = [];
-    for (const photoId of item.photos) {
-      const url = await fetchPhoto(photoId);
-      if (url) urls.push(url);
-    }
+    const urls = (await Promise.all(item.photos.map(seedPhotoUrl))).filter(
+      (url): url is string => url !== null,
+    );
 
     const data = {
       ownerId: ownersByKey[item.owner].id,
@@ -166,16 +153,14 @@ async function main() {
       views: 40 + index * 17,
     };
 
+    const images = urls.map((url, order) => ({ url, alt: item.title, sortOrder: order }));
+
     await prisma.property.upsert({
       where: { slug },
-      update: data,
-      create: {
-        ...data,
-        slug,
-        images: {
-          create: urls.map((url, order) => ({ url, alt: item.title, sortOrder: order })),
-        },
-      },
+      // Replace the gallery on re-seed. Without deleteMany the update path left
+      // stale image rows behind, so a changed URL never took effect.
+      update: { ...data, images: { deleteMany: {}, create: images } },
+      create: { ...data, slug, images: { create: images } },
     });
 
     created += 1;
