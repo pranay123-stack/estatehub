@@ -2,6 +2,27 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 
 /**
+ * How many connections this process may hold.
+ *
+ * Note that `?connection_limit=` and `?pgbouncer=` in the connection string are
+ * Prisma *query-engine* parameters. This app uses the node-postgres driver
+ * adapter instead, which ignores them — pool sizing has to come from here.
+ *
+ * On a serverless host every concurrent invocation is its own process, so each
+ * one keeping a pool open multiplies fast and exhausts the database's client
+ * limit. One connection each is the standard pairing with a transaction pooler.
+ * A long-running server is the opposite case: it handles all traffic in one
+ * process, so a single connection would serialise every query.
+ */
+function poolSize(): number {
+  const configured = Number(process.env.DATABASE_POOL_MAX);
+  if (Number.isInteger(configured) && configured > 0) return configured;
+
+  const serverless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  return serverless ? 1 : 10;
+}
+
+/**
  * Prisma 7 talks to Postgres through a driver adapter (no Rust engine binary),
  * which keeps the serverless bundle small on Vercel.
  */
@@ -15,7 +36,7 @@ function createPrismaClient(): PrismaClient {
   }
 
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString }),
+    adapter: new PrismaPg({ connectionString, max: poolSize() }),
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 }

@@ -210,6 +210,7 @@ Open <http://localhost:3000>.
 | `CLOUDINARY_API_KEY` | if cloudinary | " |
 | `CLOUDINARY_API_SECRET` | if cloudinary | Server-side only — never exposed to the client. |
 | `NEXT_PUBLIC_SITE_URL` | recommended | Absolute site URL; used for canonical tags, OG images and the sitemap. |
+| `DATABASE_POOL_MAX` | no | Connections per process. Defaults to 1 on serverless, 10 elsewhere. |
 
 ---
 
@@ -233,9 +234,12 @@ DATABASE_URL="postgresql://realestate:realestate@localhost:5432/realestate?schem
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. **Project Settings → Database → Connection string → URI**.
-3. Use the **connection pooler** URI (port `6543`) for the app, and append
-   `?pgbouncer=true&connection_limit=1` — serverless functions open many short-lived
-   connections and will exhaust a direct pool otherwise.
+3. Use the **transaction pooler** URI (port `6543`) for the app. Supabase's direct
+   connection is IPv6-only, which serverless platforms generally cannot reach.
+   Do *not* bother appending `?pgbouncer=true&connection_limit=1`: those are Prisma
+   query-engine parameters, and this app uses the node-postgres driver adapter, which
+   ignores them. Pool size is set in `src/lib/prisma.ts` — one connection per process
+   on serverless, ten otherwise, overridable with `DATABASE_POOL_MAX`.
 4. Run migrations against the **direct** connection (port `5432`).
 
 ### Applying the schema
@@ -402,7 +406,7 @@ so explicitly rather than failing with a bare `EROFS`.
 3. **Vercel** — import the repository and set these environment variables. The build
    will succeed without them, so set them *before* your first real visit:
    ```
-   DATABASE_URL           = <pooler URI>?pgbouncer=true&connection_limit=1
+   DATABASE_URL           = <transaction pooler URI, port 6543>
    AUTH_SECRET            = <openssl rand -base64 32>
    STORAGE_DRIVER         = cloudinary
    CLOUDINARY_CLOUD_NAME  = ...
